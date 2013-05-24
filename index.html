@@ -1,0 +1,160 @@
+
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Satellite Storm</title>
+<style>
+@import url(css/maps.css);
+
+#map {
+  position: relative;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+canvas {
+  cursor: auto;
+}
+
+.tile {
+  position: absolute;
+}
+</style>
+<p class="breadcrumbs"><a href="http://geosprocket.com/">Geosprocket</a> - <a href="#">Reprojected Raster Tiles</a>
+<h1>Satellite Weather View</h1>
+<div id="map"></div>
+
+<div class="wrapper">
+  <p>Static tiled raster version of <a href="http://bl.ocks.org/mbostock/3790444">via Mike Bostock and Jason Davies</a>.
+  <p>Minimal Mercator tiles from a <a href="http://a.tiles.mapbox.com/v3/landplanner.map-fs3yp666,landplanner.map-gaqnw8oj.html#7.00/38.540/-78.300">NASA/Mapbox</a> are automatically computed and reprojected on-the-fly.
+</div>
+
+<script src="js/d3.min.js"></script>
+<script src="js/d3.geo.projection.min.js"></script>
+<script src="js/topojson.min.js"></script>
+<script src="js/d3.quadtiles.js"></script>
+<script src="js/raster.js"></script>
+<script>
+
+var ratio = 2,
+    radians = Math.PI / 180,
+    width = 960 * ratio,
+    height = 960 * ratio,
+    p = .5;
+
+var projection = d3.geo.satellite()
+    .translate([width / 2, .65 * height / 2])
+    .scale(5500 * ratio)
+    .distance(1.1)
+    .rotate([76.00, -34.50, 32.12])
+    .center([-2, 5])
+    .tilt(25)
+    .clipAngle(Math.acos(1 / 1.1) * 180 / Math.PI - 1e-6)
+    .clipExtent([[p, p], [width - p, height - p]]);
+
+var path = d3.geo.path().projection(projection);
+
+var layer = d3.select("#map")
+    .style("width", width / ratio + "px")
+    .style("height", height / ratio + "px")
+  .append("div")
+    .style(prefix + "transform", "scale(.5)")
+    .style(prefix + "transform-origin", "0 0 0")
+  .append("div")
+    .style(prefix + "transform-origin", "0 0 0");
+
+var imgCanvas = document.createElement("canvas"),
+    imgContext = imgCanvas.getContext("2d");
+ 
+function onload(d, canvas, pot) {
+  var t = projection.translate(),
+      s = projection.scale(),
+      c = projection.clipExtent(),
+      cr = Math.cos(projection.clipAngle() * radians),
+      image = d.image,
+      dx = image.width,
+      dy = image.height,
+      k = d.key,
+      width = 1 << k[2];
+
+  projection.translate([0, 0]).scale(1 << pot).clipExtent(null);
+
+  imgCanvas.width = dx, imgCanvas.height = dy;
+  imgContext.drawImage(image, 0, 0, dx, dy);
+
+  var bounds = path.bounds(d),
+      x0 = d.x0 = bounds[0][0] | 0,
+      y0 = d.y0 = bounds[0][1] | 0,
+      x1 = bounds[1][0] + 1 | 0,
+      y1 = bounds[1][1] + 1 | 0;
+
+  var ?0 = k[0] / width * 360 - 180,
+      ?1 = (k[0] + 1) / width * 360 - 180,
+      f1 = mercatorf(k[1] / width * 360 - 180),
+      f0 = mercatorf((k[1] + 1) / width * 360 - 180);
+
+  var width = canvas.width = x1 - x0,
+      height = canvas.height = y1 - y0,
+      context = canvas.getContext("2d");
+
+  if (width > 0 && height > 0) {
+    var sourceData = imgContext.getImageData(0, 0, dx, dy).data,
+        target = context.createImageData(width, height),
+        targetData = target.data;
+   
+    for (var y = y0, i = -1; y < y1; ++y) {
+      for (var x = x0; x < x1; ++x) {
+        var p = projection.invert([x, y]), ? = p[0], f = p[1];
+        if (isNaN(?) || isNaN(f) || ? > ?1 || ? < ?0 || f > f1 || f < f0) { i += 4; continue; }
+
+        var q = (((? - ?0) / (?1 - ?0) * dx | 0) + ((f1 - f) / (f1 - f0) * dy | 0) * dx) * 4;
+        targetData[++i] = sourceData[q];
+        targetData[++i] = sourceData[++q];
+        targetData[++i] = sourceData[++q];
+        targetData[++i] = 255;
+      }
+    }
+    context.putImageData(target, 0, 0);
+  }
+ 
+  d3.selectAll([canvas])
+      .style("left", x0 + "px")
+      .style("top", y0 + "px");
+
+  projection.translate(t).scale(s).clipExtent(c);
+}
+
+redraw();
+
+function redraw() {
+  // TODO improve zoom level computation
+  var pot = Math.log(projection.scale()) / Math.LN2 | 0,
+      ds = projection.scale() / (1 << pot),
+      t = projection.translate(),
+      z = pot - 6;
+
+  layer.style(prefix + "transform", "translate(" + t.map(pixel) + ")scale(" + ds + ")");
+
+  var tile = layer.selectAll(".tile")
+      .data(d3.quadTiles(projection, z), key);
+  tile.enter().append("canvas")
+      .attr("class", "tile")
+      .each(function(d) {
+        var canvas = this;
+        var image = d.image = new Image;
+        image.crossOrigin = true;
+        image.onload = function() { setTimeout(function() { onload(d, canvas, pot); }, 1); };
+        var k = d.key;
+        image.src = "http://" + ["a", "b", "c"][(k[0] * 31 + k[1]) % 3] + ".tiles.mapbox.com/v3/landplanner.map-fs3yp666,landplanner.map-gaqnw8oj/" + k[2] + "/" + k[0] + "/" + k[1] + ".png";
+      });
+  tile.exit().remove();
+}
+
+function key(d) { return d.key.join(", "); }
+
+function mercatorf(y) {
+  return Math.atan(Math.exp(-y * Math.PI / 180)) * 360 / Math.PI - 90;
+}
+
+function pixel(d) { return (d | 0) + "px"; }
+
+</script>
