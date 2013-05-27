@@ -38,9 +38,10 @@ p.caption {
 
 body {
   margin-top: 0;
-  font-family: Times, serif;
+  font-family: Copperplate Gothic Light, sans-serif;
   text-align: center;
-  background: #fff;
+  color: #E6E8FF;
+  background: #1A1C37;
 }
 
 p, li {
